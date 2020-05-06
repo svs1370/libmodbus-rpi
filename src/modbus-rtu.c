@@ -267,6 +267,23 @@ static void _modbus_rtu_ioctl_rts(modbus_t *ctx, int on)
 }
 #endif
 
+#if BUILD_FOR_RPI_RS485
+static void _modbus_rtu_rpi_rts_dummy(modbus_t *ctx, int on)
+{
+    /* 
+    This is the default RTS handler for RPi/BPi RS485 module
+    It just prints warning message to stderr. 
+    The reason for not having it manage GPIO pins is that we
+    do not want to include wiringPi library into libmodus.
+    
+    Use modbus_rtu_set_custom_rts to register custom RTS handler
+    */
+    if (ctx && ctx->debug) {
+        fprintf(stderr, "RPi RS485 RTS handler was not initialized! Communication over RS485 may not be functional.\n");
+    }
+}
+#endif
+
 static ssize_t _modbus_rtu_send(modbus_t *ctx, const uint8_t *req, int req_length)
 {
 #if defined(_WIN32)
@@ -274,7 +291,7 @@ static ssize_t _modbus_rtu_send(modbus_t *ctx, const uint8_t *req, int req_lengt
     DWORD n_bytes = 0;
     return (WriteFile(ctx_rtu->w_ser.fd, req, req_length, &n_bytes, NULL)) ? (ssize_t)n_bytes : -1;
 #else
-#if HAVE_DECL_TIOCM_RTS
+#if HAVE_DECL_TIOCM_RTS || BUILD_FOR_RPI_RS485
     modbus_rtu_t *ctx_rtu = ctx->backend_data;
     if (ctx_rtu->rts != MODBUS_RTU_RTS_NONE) {
         ssize_t size;
@@ -295,7 +312,7 @@ static ssize_t _modbus_rtu_send(modbus_t *ctx, const uint8_t *req, int req_lengt
     } else {
 #endif
         return write(ctx->s, req, req_length);
-#if HAVE_DECL_TIOCM_RTS
+#if HAVE_DECL_TIOCM_RTS || BUILD_FOR_RPI_RS485
     }
 #endif
 #endif
@@ -984,7 +1001,7 @@ int modbus_rtu_get_rts(modbus_t *ctx)
     }
 
     if (ctx->backend->backend_type == _MODBUS_BACKEND_TYPE_RTU) {
-#if HAVE_DECL_TIOCM_RTS
+#if HAVE_DECL_TIOCM_RTS || BUILD_FOR_RPI_RS485
         modbus_rtu_t *ctx_rtu = ctx->backend_data;
         return ctx_rtu->rts;
 #else
@@ -1002,13 +1019,27 @@ int modbus_rtu_get_rts(modbus_t *ctx)
 
 int modbus_rtu_set_rts(modbus_t *ctx, int mode)
 {
+    /* 
+     * It seems that mode argument to this function is NOT the status
+     * we want RS485-UART module to be set to when this function returns, 
+     * but a value, which corresponds to the "write" mode of the adapter.
+     *
+     * Typical wiring of RS485-UART module in Raspberry Pi assumes that
+     * the module's DE/~RE terminals are both connected to a certain
+     * GPIO pin. When that pin is set to HIGH (e.g. 1), module is put
+     * into "write" mode.
+     *
+     * Therefore, we must pass mode=MODBUS_RTU_RTS_UP to this call
+     * when initializing the application.
+     * 
+     */
     if (ctx == NULL) {
         errno = EINVAL;
         return -1;
     }
 
     if (ctx->backend->backend_type == _MODBUS_BACKEND_TYPE_RTU) {
-#if HAVE_DECL_TIOCM_RTS
+#if HAVE_DECL_TIOCM_RTS || BUILD_FOR_RPI_RS485
         modbus_rtu_t *ctx_rtu = ctx->backend_data;
 
         if (mode == MODBUS_RTU_RTS_NONE || mode == MODBUS_RTU_RTS_UP ||
@@ -1044,7 +1075,7 @@ int modbus_rtu_set_custom_rts(modbus_t *ctx, void (*set_rts) (modbus_t *ctx, int
     }
 
     if (ctx->backend->backend_type == _MODBUS_BACKEND_TYPE_RTU) {
-#if HAVE_DECL_TIOCM_RTS
+#if HAVE_DECL_TIOCM_RTS || BUILD_FOR_RPI_RS485
         modbus_rtu_t *ctx_rtu = ctx->backend_data;
         ctx_rtu->set_rts = set_rts;
         return 0;
@@ -1069,7 +1100,7 @@ int modbus_rtu_get_rts_delay(modbus_t *ctx)
     }
 
     if (ctx->backend->backend_type == _MODBUS_BACKEND_TYPE_RTU) {
-#if HAVE_DECL_TIOCM_RTS
+#if HAVE_DECL_TIOCM_RTS || BUILD_FOR_RPI_RS485
         modbus_rtu_t *ctx_rtu;
         ctx_rtu = (modbus_rtu_t *)ctx->backend_data;
         return ctx_rtu->rts_delay;
@@ -1094,7 +1125,7 @@ int modbus_rtu_set_rts_delay(modbus_t *ctx, int us)
     }
 
     if (ctx->backend->backend_type == _MODBUS_BACKEND_TYPE_RTU) {
-#if HAVE_DECL_TIOCM_RTS
+#if HAVE_DECL_TIOCM_RTS || BUILD_FOR_RPI_RS485
         modbus_rtu_t *ctx_rtu;
         ctx_rtu = (modbus_rtu_t *)ctx->backend_data;
         ctx_rtu->rts_delay = us;
@@ -1279,19 +1310,34 @@ modbus_t* modbus_new_rtu(const char *device,
     ctx_rtu->serial_mode = MODBUS_RTU_RS232;
 #endif
 
-#if HAVE_DECL_TIOCM_RTS
+#if HAVE_DECL_TIOCM_RTS || BUILD_FOR_RPI_RS485
     /* The RTS use has been set by default */
     ctx_rtu->rts = MODBUS_RTU_RTS_NONE;
 
     /* Calculate estimated time in micro second to send one byte */
     ctx_rtu->onebyte_time = 1000000 * (1 + data_bit + (parity == 'N' ? 0 : 1) + stop_bit) / baud;
 
-    /* The internal function is used by default to set RTS */
-    ctx_rtu->set_rts = _modbus_rtu_ioctl_rts;
-
     /* The delay before and after transmission when toggling the RTS pin */
     ctx_rtu->rts_delay = ctx_rtu->onebyte_time;
 #endif
+
+#if HAVE_DECL_TIOCM_RTS
+    /* The internal function is used by default to set RTS */
+    ctx_rtu->set_rts = _modbus_rtu_ioctl_rts;
+#elif BUILD_FOR_RPI_RS485
+    /* Redefine the function to be used by default to set RTS
+    for RPi/BPi build to an internal dummy handler, which just prints
+    warning to stderr */
+    ctx_rtu->set_rts = _modbus_rtu_rpi_rts_dummy;
+    /* After ctx-rtu->rts_set is properly configured (see below), 
+    call modbus_rtu_set_rts to set RTS state to other than MODBUS_RTU_RTS_NONE.
+    Otherwise, send/receive methods will not call rts_set to control
+    RTS pin of RS485 adapter.
+    To initialize RPi/BPi RS485 adapter in "read" mode call:
+    modbus_rtu_set_rts(ctx, MODBUS_RTU_RTS_UP);
+    modbus_flush(ctx);
+    */
+#endif 
 
     ctx_rtu->confirmation_to_ignore = FALSE;
 

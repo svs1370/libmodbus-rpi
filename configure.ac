@@ -162,6 +162,8 @@ AC_CONFIG_FILES([
         libmodbus.pc
 ])
 
+AC_DEFINE(BUILD_FOR_RPI_RS485, 1, _)
+
 AC_OUTPUT
 AC_MSG_RESULT([
         $PACKAGE $VERSION

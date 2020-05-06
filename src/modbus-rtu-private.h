@@ -63,7 +63,7 @@ typedef struct _modbus_rtu {
 #if HAVE_DECL_TIOCSRS485
     int serial_mode;
 #endif
-#if HAVE_DECL_TIOCM_RTS
+#if HAVE_DECL_TIOCM_RTS || BUILD_FOR_RPI_RS485
     int rts;
     int rts_delay;
     int onebyte_time;
