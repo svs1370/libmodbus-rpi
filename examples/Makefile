@@ -14,7 +14,7 @@ LDLIBS    = -lwiringPi -lwiringPiDev -lpthread -lrt -lm -lcrypt -lmodbus
 
 ###############################################################################
 
-SRC	=	master.c slave.c
+SRC	=	master.c slave.c master-ardu.c master-lcd.c master-grlcd.c
 
 OBJ	=	$(SRC:.c=.o)
 
@@ -25,6 +25,18 @@ all:	$(BINS)
 master:	master.o
 	echo [link]
 	$(CC) -o $@ master.o $(LDFLAGS) $(LDLIBS)
+
+master-ardu:	master-ardu.o
+	echo [link]
+	$(CC) -o $@ master-ardu.o $(LDFLAGS) $(LDLIBS)
+
+master-lcd:	master-lcd.o
+	echo [link]
+	$(CC) -o $@ master-lcd.o $(LDFLAGS) $(LDLIBS)
+
+master-grlcd:	master-grlcd.o
+	echo [link]
+	$(CC) -o $@ master-grlcd.o $(LDFLAGS) $(LDLIBS)
 
 slave:	slave.o
 	echo [link]
